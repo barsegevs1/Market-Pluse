@@ -13,13 +13,13 @@ interface StockRow {
 interface ChartPoint { date: string; [key: string]: number | string | null }
 
 const INDICES = [
-  { key: 'SP500',   symbol: '^GSPC',     label: 'S&P 500',       color: '#4ade80', base: 1 },
-  { key: 'NASDAQ',  symbol: '^IXIC',     label: 'NASDAQ',        color: '#60a5fa', base: 1 },
-  { key: 'TA35',    symbol: '^TA35.TA',  label: 'TA-35',         color: '#f59e0b', base: 1 },
-  { key: 'STOXX',   symbol: '^STOXX50E', label: 'Euro Stoxx 50', color: '#a78bfa', base: 1 },
-  { key: 'NIKKEI',  symbol: '^N225',     label: 'Nikkei 225',    color: '#f87171', base: 1 },
-  { key: 'MSCI_EM', symbol: 'EEM',       label: 'MSCI EM',       color: '#34d399', base: 1 },
-  { key: 'MSCI_W',  symbol: 'URTH',      label: 'MSCI World',    color: '#fb923c', base: 1 },
+  { key: 'SP500',   symbol: '^GSPC',     label: 'S&P 500',       color: '#4ade80' },
+  { key: 'NASDAQ',  symbol: '^IXIC',     label: 'NASDAQ',        color: '#60a5fa' },
+  { key: 'TA35',    symbol: '^TA35.TA',  label: 'TA-35',         color: '#f59e0b' },
+  { key: 'STOXX',   symbol: '^STOXX50E', label: 'Euro Stoxx 50', color: '#a78bfa' },
+  { key: 'NIKKEI',  symbol: '^N225',     label: 'Nikkei 225',    color: '#f87171' },
+  { key: 'MSCI_EM', symbol: 'EEM',       label: 'MSCI EM',       color: '#34d399' },
+  { key: 'MSCI_W',  symbol: 'URTH',      label: 'MSCI World',    color: '#fb923c' },
 ]
 
 const RANGES = ['1D','1M','YTD','1Y','5Y']
@@ -85,7 +85,6 @@ const SECTOR_ETF: Record<string,string> = {
 
 const fmt = (n: number, d = 2) => isNaN(n) ? '—' : n.toFixed(d)
 const fmtPct = (n: number) => isNaN(n) ? '—' : `${n >= 0 ? '+' : ''}${fmt(n)}%`
-const fmtNum = (n: number) => n >= 1000 ? n.toLocaleString('en-US', {maximumFractionDigits: 0}) : fmt(n, 2)
 const fmtCap = (n: number) => !n ? '—' : n >= 1e12 ? `$${fmt(n/1e12,2)}T` : n >= 1e9 ? `$${fmt(n/1e9,1)}B` : `$${fmt(n/1e6,0)}M`
 
 async function fetchYahoo(symbols: string[], range: string) {
@@ -107,26 +106,26 @@ function percentileRank(arr: number[], val: number) {
   return arr.length <= 1 ? 50 : (below / (arr.length - 1)) * 100
 }
 
-// Custom tooltip for Price mode — shows value + change from period start
-const CustomTooltip = ({ active, payload, label, mode, baseValues }: any) => {
+// Custom tooltip
+const CustomTooltip = ({ active, payload, label, mode }: any) => {
   if (!active || !payload?.length) return null
   return (
     <div style={{ background: '#161b22', border: '1px solid #30363d', borderRadius: 8, padding: '10px 14px', fontSize: 12 }}>
       <p style={{ color: '#8b949e', marginBottom: 6 }}>{label}</p>
       {payload.map((p: any) => {
-        const val = p.value
-        if (val == null) return null
-        const base = baseValues?.[p.dataKey]
-        const chg = base ? ((val - base) / base * 100) : null
+        if (p.value == null) return null
+        const val = p.value as number
         return (
           <div key={p.dataKey} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: p.color, display: 'inline-block' }} />
             <span style={{ color: '#8b949e' }}>{p.name}:</span>
             <span style={{ color: '#e6edf3', fontWeight: 600 }}>
-              {mode === 'relative' ? fmtPct(val) : fmtNum(val)}
+              {mode === 'relative' ? fmtPct(val) : `${val.toFixed(2)}`}
             </span>
-            {mode === 'price' && chg != null && (
-              <span style={{ color: chg >= 0 ? '#4ade80' : '#f87171' }}>({fmtPct(chg)})</span>
+            {mode === 'price' && (
+              <span style={{ color: val >= 100 ? '#4ade80' : '#f87171', fontSize: 11 }}>
+                ({fmtPct(val - 100)})
+              </span>
             )}
           </div>
         )
@@ -140,7 +139,6 @@ export default function App() {
   const [chartMode, setChartMode]   = useState<'relative'|'price'>('relative')
   const [activeIdx, setActiveIdx]   = useState<Set<string>>(new Set(INDICES.map(i => i.key)))
   const [chartData, setChartData]   = useState<ChartPoint[]>([])
-  const [baseValues, setBaseValues] = useState<Record<string,number>>({})
   const [stocks, setStocks]         = useState<StockRow[]>([])
   const [loading, setLoading]       = useState(true)
   const [lastUpdate, setLastUpdate] = useState('')
@@ -153,15 +151,14 @@ export default function App() {
       // ── גרפי מדדים ──
       const idxData = await fetchYahoo(INDICES.map(i => i.symbol), range)
       const pts: ChartPoint[] = []
-      const bases: Record<string,number> = {}
 
       INDICES.forEach(idx => {
+        // תמיכה ב-fallback: הAPI מחזיר את הנתונים תחת הסימבול המקורי
         const res = idxData[idx.symbol]?.result
         if (!res) return
         const timestamps: number[] = res.timestamp || []
         const closes: number[] = res.indicators?.quote?.[0]?.close || []
         const base = closes.find((c: number) => c != null) || 1
-        bases[idx.key] = base
 
         timestamps.forEach((ts: number, i: number) => {
           const close = closes[i]
@@ -169,15 +166,20 @@ export default function App() {
           const date = new Date(ts * 1000).toISOString().slice(0, 10)
           let pt = pts.find(p => p.date === date)
           if (!pt) { pt = { date }; pts.push(pt) }
-          pt[idx.key] = chartMode === 'relative'
-            ? parseFloat(((close - base) / base * 100).toFixed(2))
-            : parseFloat(close.toFixed(2))
+
+          if (chartMode === 'relative') {
+            // Relative %: כמה % עלה/ירד מתחילת התקופה
+            pt[idx.key] = parseFloat(((close - base) / base * 100).toFixed(2))
+          } else {
+            // Price mode: indexed to 100 — כל מדד מתחיל מ-100
+            // כך כל המדדים על אותו ציר Y וניתן להשוות צורות
+            pt[idx.key] = parseFloat((close / base * 100).toFixed(2))
+          }
         })
       })
 
       pts.sort((a, b) => String(a.date).localeCompare(String(b.date)))
       setChartData(pts)
-      setBaseValues(bases)
 
       // ── סורק מניות ──
       const sectorEtfs = [...new Set(Object.values(SECTOR_ETF))]
@@ -186,44 +188,45 @@ export default function App() {
         fetchYahoo(sectorEtfs, '1M')
       ])
 
-      const etfPerf: Record<string,number> = {}
+      const etfPerf: Record<string, number> = {}
       sectorEtfs.forEach(etf => {
         const res = etfData[etf]?.result
         if (!res) return
         const closes: number[] = (res.indicators?.quote?.[0]?.close || []).filter((c: any) => c != null)
-        const last = closes[closes.length-1], first = closes[0]
-        const prev1 = closes[closes.length-2] || last
-        const prev5 = closes[closes.length-6] || first
-        const prev21 = closes[closes.length-22] || first
-        if (prev1) etfPerf[etf+'_1d'] = (last-prev1)/prev1*100
-        if (prev5) etfPerf[etf+'_5d'] = (last-prev5)/prev5*100
+        const last = closes[closes.length-1]
+        const prev1  = closes[closes.length-2] || last
+        const prev5  = closes[closes.length-6] || closes[0]
+        const prev21 = closes[closes.length-22] || closes[0]
+        if (prev1)  etfPerf[etf+'_1d']  = (last-prev1)/prev1*100
+        if (prev5)  etfPerf[etf+'_5d']  = (last-prev5)/prev5*100
         if (prev21) etfPerf[etf+'_21d'] = (last-prev21)/prev21*100
       })
 
       const rows: StockRow[] = TICKERS.map(tk => {
         const res = stockData[tk.t]?.result
         if (!res) return null
-        const meta = res.meta || {}
+        const meta   = res.meta || {}
         const closes: number[] = (res.indicators?.quote?.[0]?.close || []).filter((c: any) => c != null)
         const price   = meta.regularMarketPrice || closes[closes.length-1] || 0
         const prev1d  = meta.chartPreviousClose || closes[closes.length-2] || price
-        const prev5d  = closes[closes.length-6]  || prev1d
-        const prev21d = closes[closes.length-22] || prev1d
+        const prev5d  = closes[closes.length-6]  || closes[0] || prev1d
+        const prev21d = closes[closes.length-22] || closes[0] || prev1d
         const high52w = meta.fiftyTwoWeekHigh || price
         const ch1d   = prev1d  ? (price-prev1d)/prev1d*100   : 0
         const ch5d   = prev5d  ? (price-prev5d)/prev5d*100   : 0
         const ch21d  = prev21d ? (price-prev21d)/prev21d*100 : 0
         const drop   = high52w ? (price-high52w)/high52w*100 : 0
         const etf    = SECTOR_ETF[tk.s] || 'SPY'
-        const d1d  = ch1d  - (etfPerf[etf+'_1d']  || 0)
-        const d5d  = ch5d  - (etfPerf[etf+'_5d']  || 0)
-        const d21d = ch21d - (etfPerf[etf+'_21d'] || 0)
+        const d1d    = ch1d  - (etfPerf[etf+'_1d']  || 0)
+        const d5d    = ch5d  - (etfPerf[etf+'_5d']  || 0)
+        const d21d   = ch21d - (etfPerf[etf+'_21d'] || 0)
         return {
           ticker: tk.t, name: tk.name, sector: tk.s, index: tk.i,
           marketCap: meta.marketCap || 0,
           pe: meta.trailingPE || meta.forwardPE || 0,
           price, change1d: ch1d, change5d: ch5d, change21d: ch21d,
-          high52w, dropFromHigh: drop, delta1d: d1d, delta5d: d5d, delta21d: d21d, score: 0
+          high52w, dropFromHigh: drop,
+          delta1d: d1d, delta5d: d5d, delta21d: d21d, score: 0
         }
       }).filter(Boolean) as StockRow[]
 
@@ -231,8 +234,8 @@ export default function App() {
       const a21=rows.map(r=>r.delta21d), aDrop=rows.map(r=>r.dropFromHigh)
       rows.forEach(r => {
         r.score = parseFloat((
-          (percentileRank(a1,r.delta1d) + percentileRank(a5,r.delta5d) +
-           percentileRank(a21,r.delta21d) + percentileRank(aDrop,r.dropFromHigh)) / 4
+          (percentileRank(a1,r.delta1d)+percentileRank(a5,r.delta5d)+
+           percentileRank(a21,r.delta21d)+percentileRank(aDrop,r.dropFromHigh))/4
         ).toFixed(1))
       })
 
@@ -245,13 +248,13 @@ export default function App() {
 
   useEffect(() => { loadData() }, [loadData])
   useEffect(() => {
-    const t = setInterval(loadData, 20 * 60 * 1000)
+    const t = setInterval(loadData, 20*60*1000)
     return () => clearInterval(t)
   }, [loadData])
 
   const sorted = [...stocks].sort((a, b) => {
     const av = a[sortCol] as number, bv = b[sortCol] as number
-    return sortDir === 'desc' ? bv - av : av - bv
+    return sortDir === 'desc' ? bv-av : av-bv
   })
 
   const toggleIdx = (key: string) => setActiveIdx(prev => {
@@ -259,60 +262,53 @@ export default function App() {
   })
 
   const handleSort = (col: keyof StockRow) => {
-    if (sortCol === col) setSortDir(d => d === 'desc' ? 'asc' : 'desc')
+    if (sortCol === col) setSortDir(d => d==='desc'?'asc':'desc')
     else { setSortCol(col); setSortDir('desc') }
   }
 
-  const scoreColor = (s: number) => s >= 75 ? '#f87171' : s >= 50 ? '#fb923c' : s >= 25 ? '#fbbf24' : '#4ade80'
-
+  const scoreColor = (s: number) => s>=75?'#f87171':s>=50?'#fb923c':s>=25?'#fbbf24':'#4ade80'
   const activeIndices = INDICES.filter(i => activeIdx.has(i.key))
 
-  // במצב Price — כל מדד על ציר Y נפרד דרך normalizeToFirstPoint=false
-  // נשתמש ב-YAxis יחיד אבל נציג tooltip מלא עם ערך + שינוי
-  const S: Record<string, any> = {
-    page: { minHeight: '100vh', background: '#0d1117', color: '#e6edf3', fontFamily: '-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif' },
-    hdr:  { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: '1px solid #21262d', background: '#0d1117', position: 'sticky' as const, top: 0, zIndex: 10 },
-    wrap: { padding: '16px 20px', maxWidth: 1400, margin: '0 auto' },
-    card: { background: '#161b22', border: '1px solid #21262d', borderRadius: 10, padding: 16, marginBottom: 16 },
-  }
-
   return (
-    <div style={S.page}>
-      <div style={S.hdr}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+    <div style={{ minHeight:'100vh', background:'#0d1117', color:'#e6edf3', fontFamily:'-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif' }}>
+      {/* Header */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 20px', borderBottom:'1px solid #21262d', background:'#0d1117', position:'sticky', top:0, zIndex:10 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
           <TrendingUp size={20} color="#4ade80" />
-          <span style={{ fontWeight: 700, fontSize: 16 }}>Market Pulse</span>
+          <span style={{ fontWeight:700, fontSize:16 }}>Market Pulse</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {lastUpdate && <span style={{ fontSize: 12, color: '#8b949e' }}>Updated {lastUpdate}</span>}
-          <button onClick={loadData} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 6, border: '1px solid #30363d', background: 'transparent', color: '#e6edf3', cursor: 'pointer', fontSize: 12 }}>
-            <RefreshCw size={13} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
+        <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+          {lastUpdate && <span style={{ fontSize:12, color:'#8b949e' }}>Updated {lastUpdate}</span>}
+          <button onClick={loadData} disabled={loading} style={{ display:'flex', alignItems:'center', gap:6, padding:'5px 12px', borderRadius:6, border:'1px solid #30363d', background:'transparent', color:'#e6edf3', cursor:'pointer', fontSize:12 }}>
+            <RefreshCw size={13} style={{ animation:loading?'spin 1s linear infinite':'none' }} />
             Refresh
           </button>
         </div>
       </div>
 
-      <div style={S.wrap}>
+      <div style={{ padding:'16px 20px', maxWidth:1400, margin:'0 auto' }}>
         {/* Chart Panel */}
-        <div style={S.card}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ background:'#161b22', border:'1px solid #21262d', borderRadius:10, padding:16, marginBottom:16 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14, flexWrap:'wrap', gap:8 }}>
             <div>
-              <h2 style={{ fontSize: 15, fontWeight: 600 }}>Global Indices</h2>
-              <p style={{ fontSize: 11, color: '#8b949e', marginTop: 2 }}>
-                {chartMode === 'relative' ? 'Normalized to 0% at start of range.' : 'Actual index values. Hover for change %.'}
+              <h2 style={{ fontSize:15, fontWeight:600 }}>Global Indices</h2>
+              <p style={{ fontSize:11, color:'#8b949e', marginTop:2 }}>
+                {chartMode==='relative'
+                  ? 'Normalized to 0% at start of range.'
+                  : 'Indexed to 100 at start of range — same scale, comparable shapes.'}
               </p>
             </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', background: '#0d1117', borderRadius: 6, padding: 2 }}>
+            <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+              <div style={{ display:'flex', background:'#0d1117', borderRadius:6, padding:2 }}>
                 {(['relative','price'] as const).map(m => (
-                  <button key={m} onClick={() => setChartMode(m)} style={{ padding: '3px 10px', borderRadius: 5, border: 'none', background: chartMode === m ? '#21262d' : 'transparent', color: chartMode === m ? '#e6edf3' : '#8b949e', cursor: 'pointer', fontSize: 12 }}>
-                    {m === 'relative' ? 'Relative %' : 'Price'}
+                  <button key={m} onClick={() => setChartMode(m)} style={{ padding:'3px 10px', borderRadius:5, border:'none', background:chartMode===m?'#21262d':'transparent', color:chartMode===m?'#e6edf3':'#8b949e', cursor:'pointer', fontSize:12 }}>
+                    {m==='relative'?'Relative %':'Indexed'}
                   </button>
                 ))}
               </div>
-              <div style={{ display: 'flex', background: '#0d1117', borderRadius: 6, padding: 2 }}>
+              <div style={{ display:'flex', background:'#0d1117', borderRadius:6, padding:2 }}>
                 {RANGES.map(r => (
-                  <button key={r} onClick={() => setRange(r)} style={{ padding: '3px 10px', borderRadius: 5, border: 'none', background: range === r ? '#238636' : 'transparent', color: range === r ? '#fff' : '#8b949e', cursor: 'pointer', fontSize: 12 }}>
+                  <button key={r} onClick={() => setRange(r)} style={{ padding:'3px 10px', borderRadius:5, border:'none', background:range===r?'#238636':'transparent', color:range===r?'#fff':'#8b949e', cursor:'pointer', fontSize:12 }}>
                     {r}
                   </button>
                 ))}
@@ -320,11 +316,11 @@ export default function App() {
             </div>
           </div>
 
-          {/* Index toggle pills */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+          {/* Index toggles */}
+          <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginBottom:14 }}>
             {INDICES.map(idx => (
-              <button key={idx.key} onClick={() => toggleIdx(idx.key)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '3px 10px', borderRadius: 16, border: `1px solid ${activeIdx.has(idx.key) ? idx.color : '#30363d'}`, background: activeIdx.has(idx.key) ? `${idx.color}22` : 'transparent', color: activeIdx.has(idx.key) ? idx.color : '#8b949e', cursor: 'pointer', fontSize: 12 }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: activeIdx.has(idx.key) ? idx.color : '#8b949e' }} />
+              <button key={idx.key} onClick={() => toggleIdx(idx.key)} style={{ display:'flex', alignItems:'center', gap:5, padding:'3px 10px', borderRadius:16, border:`1px solid ${activeIdx.has(idx.key)?idx.color:'#30363d'}`, background:activeIdx.has(idx.key)?`${idx.color}22`:'transparent', color:activeIdx.has(idx.key)?idx.color:'#8b949e', cursor:'pointer', fontSize:12 }}>
+                <span style={{ width:7, height:7, borderRadius:'50%', background:activeIdx.has(idx.key)?idx.color:'#8b949e' }} />
                 {idx.label}
               </button>
             ))}
@@ -332,12 +328,12 @@ export default function App() {
 
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={chartData}>
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#8b949e' }} tickLine={false} axisLine={false} />
+              <XAxis dataKey="date" tick={{ fontSize:10, fill:'#8b949e' }} tickLine={false} axisLine={false} />
               <YAxis
-                tick={{ fontSize: 10, fill: '#8b949e' }} tickLine={false} axisLine={false}
-                tickFormatter={v => chartMode === 'relative' ? `${v > 0 ? '+' : ''}${v}%` : v >= 1000 ? `${(v/1000).toFixed(0)}K` : String(v)}
+                tick={{ fontSize:10, fill:'#8b949e' }} tickLine={false} axisLine={false}
+                tickFormatter={v => chartMode==='relative' ? `${v>0?'+':''}${v}%` : `${v}`}
               />
-              <Tooltip content={<CustomTooltip mode={chartMode} baseValues={baseValues} />} />
+              <Tooltip content={<CustomTooltip mode={chartMode} />} />
               {activeIndices.map(idx => (
                 <Line key={idx.key} type="monotone" dataKey={idx.key} name={idx.label} stroke={idx.color} dot={false} strokeWidth={2} connectNulls />
               ))}
@@ -345,21 +341,19 @@ export default function App() {
           </ResponsiveContainer>
 
           {/* Legend */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, marginTop: 10 }}>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:14, marginTop:10 }}>
             {activeIndices.map(idx => {
-              const last = chartData[chartData.length-1]?.[idx.key] as number
-              const base = baseValues[idx.key]
-              const chgPct = (last != null && base) ? (last - base) / base * 100 : null
+              const last = chartData.slice().reverse().find(p => p[idx.key] != null)?.[idx.key] as number
+              const chgPct = last != null
+                ? (chartMode==='relative' ? last : last - 100)
+                : null
               return (
-                <div key={idx.key} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
-                  <span style={{ width: 18, height: 2, background: idx.color, display: 'inline-block' }} />
-                  <span style={{ color: '#8b949e' }}>{idx.label}</span>
-                  {last == null
-                    ? <span style={{ color: '#f87171' }}>error</span>
-                    : <>
-                        {chartMode === 'price' && <span style={{ color: '#e6edf3' }}>{fmtNum(last)}</span>}
-                        {chgPct != null && <span style={{ color: chgPct >= 0 ? '#4ade80' : '#f87171' }}>{fmtPct(chgPct)}</span>}
-                      </>
+                <div key={idx.key} style={{ display:'flex', alignItems:'center', gap:5, fontSize:12 }}>
+                  <span style={{ width:18, height:2, background:idx.color, display:'inline-block' }} />
+                  <span style={{ color:'#8b949e' }}>{idx.label}</span>
+                  {chgPct == null
+                    ? <span style={{ color:'#f87171' }}>error</span>
+                    : <span style={{ color:chgPct>=0?'#4ade80':'#f87171' }}>{fmtPct(chgPct)}</span>
                   }
                 </div>
               )
@@ -367,51 +361,51 @@ export default function App() {
           </div>
         </div>
 
-        {/* Stock Screener */}
-        <div style={S.card}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-            <h2 style={{ fontSize: 15, fontWeight: 600 }}>Stock Screener</h2>
-            <span style={{ fontSize: 12, color: '#8b949e' }}>Universe: {stocks.length} stocks</span>
+        {/* Screener */}
+        <div style={{ background:'#161b22', border:'1px solid #21262d', borderRadius:10, padding:16 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:14 }}>
+            <h2 style={{ fontSize:15, fontWeight:600 }}>Stock Screener</h2>
+            <span style={{ fontSize:12, color:'#8b949e' }}>Universe: {stocks.length} stocks</span>
           </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <div style={{ overflowX:'auto' }}>
+            <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
               <thead>
-                <tr style={{ borderBottom: '1px solid #21262d' }}>
+                <tr style={{ borderBottom:'1px solid #21262d' }}>
                   {([
                     ['ticker','TICKER'],['name','NAME'],['index','INDEX'],['sector','SECTOR'],
                     ['marketCap','MKT CAP'],['pe','P/E'],['price','PRICE'],
                     ['score','SCORE'],['delta1d','Δ1D vs ETF'],['delta5d','Δ5D vs ETF'],
                     ['delta21d','Δ21D vs ETF'],['dropFromHigh','52W HIGH']
-                  ] as [keyof StockRow, string][]).map(([col, label]) => (
-                    <th key={col} onClick={() => handleSort(col)} style={{ padding: '7px 10px', textAlign: 'left', color: '#8b949e', fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap', userSelect: 'none' }}>
-                      {label}{sortCol === col ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
+                  ] as [keyof StockRow,string][]).map(([col,label]) => (
+                    <th key={col} onClick={() => handleSort(col)} style={{ padding:'7px 10px', textAlign:'left', color:'#8b949e', fontWeight:500, cursor:'pointer', whiteSpace:'nowrap', userSelect:'none' }}>
+                      {label}{sortCol===col?(sortDir==='desc'?' ↓':' ↑'):''}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {sorted.map((row, i) => (
-                  <tr key={row.ticker} style={{ borderBottom: '1px solid #21262d', background: i % 2 === 0 ? 'transparent' : '#0d111722' }}>
-                    <td style={{ padding: '8px 10px', fontWeight: 700 }}>{row.ticker}</td>
-                    <td style={{ padding: '8px 10px', color: '#8b949e' }}>{row.name}</td>
-                    <td style={{ padding: '8px 10px' }}>
-                      <span style={{ padding: '1px 7px', borderRadius: 3, fontSize: 10, fontWeight: 600, background: row.index === 'NASDAQ' ? '#1d4ed822' : row.index === 'NYSE' ? '#7e22ce22' : '#d9770622', color: row.index === 'NASDAQ' ? '#60a5fa' : row.index === 'NYSE' ? '#a78bfa' : '#fb923c' }}>
+                  <tr key={row.ticker} style={{ borderBottom:'1px solid #21262d', background:i%2===0?'transparent':'#0d111722' }}>
+                    <td style={{ padding:'8px 10px', fontWeight:700 }}>{row.ticker}</td>
+                    <td style={{ padding:'8px 10px', color:'#8b949e' }}>{row.name}</td>
+                    <td style={{ padding:'8px 10px' }}>
+                      <span style={{ padding:'1px 7px', borderRadius:3, fontSize:10, fontWeight:600, background:row.index==='NASDAQ'?'#1d4ed822':row.index==='NYSE'?'#7e22ce22':'#d9770622', color:row.index==='NASDAQ'?'#60a5fa':row.index==='NYSE'?'#a78bfa':'#fb923c' }}>
                         {row.index}
                       </span>
                     </td>
-                    <td style={{ padding: '8px 10px', color: '#8b949e' }}>{row.sector}</td>
-                    <td style={{ padding: '8px 10px' }}>{fmtCap(row.marketCap)}</td>
-                    <td style={{ padding: '8px 10px' }}>{row.pe ? fmt(row.pe, 1) : '—'}</td>
-                    <td style={{ padding: '8px 10px' }}>${fmt(row.price)}</td>
-                    <td style={{ padding: '8px 10px' }}>
-                      <span style={{ padding: '2px 9px', borderRadius: 14, fontWeight: 700, fontSize: 12, background: `${scoreColor(row.score)}22`, color: scoreColor(row.score) }}>
+                    <td style={{ padding:'8px 10px', color:'#8b949e' }}>{row.sector}</td>
+                    <td style={{ padding:'8px 10px' }}>{fmtCap(row.marketCap)}</td>
+                    <td style={{ padding:'8px 10px' }}>{row.pe?fmt(row.pe,1):'—'}</td>
+                    <td style={{ padding:'8px 10px' }}>${fmt(row.price)}</td>
+                    <td style={{ padding:'8px 10px' }}>
+                      <span style={{ padding:'2px 9px', borderRadius:14, fontWeight:700, fontSize:12, background:`${scoreColor(row.score)}22`, color:scoreColor(row.score) }}>
                         {row.score}
                       </span>
                     </td>
-                    <td style={{ padding: '8px 10px', color: row.delta1d < 0 ? '#f87171' : '#4ade80' }}>{fmtPct(row.delta1d)}</td>
-                    <td style={{ padding: '8px 10px', color: row.delta5d < 0 ? '#f87171' : '#4ade80' }}>{fmtPct(row.delta5d)}</td>
-                    <td style={{ padding: '8px 10px', color: row.delta21d < 0 ? '#f87171' : '#4ade80' }}>{fmtPct(row.delta21d)}</td>
-                    <td style={{ padding: '8px 10px', color: row.dropFromHigh < -15 ? '#f87171' : '#8b949e' }}>{fmtPct(row.dropFromHigh)}</td>
+                    <td style={{ padding:'8px 10px', color:row.delta1d<0?'#f87171':'#4ade80' }}>{fmtPct(row.delta1d)}</td>
+                    <td style={{ padding:'8px 10px', color:row.delta5d<0?'#f87171':'#4ade80' }}>{fmtPct(row.delta5d)}</td>
+                    <td style={{ padding:'8px 10px', color:row.delta21d<0?'#f87171':'#4ade80' }}>{fmtPct(row.delta21d)}</td>
+                    <td style={{ padding:'8px 10px', color:row.dropFromHigh<-15?'#f87171':'#8b949e' }}>{fmtPct(row.dropFromHigh)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -421,8 +415,8 @@ export default function App() {
       </div>
 
       <style>{`
-        @keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
-        @media (max-width: 768px) { table { font-size: 11px } th, td { padding: 5px 7px !important } }
+        @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+        @media(max-width:768px){table{font-size:11px}th,td{padding:5px 7px!important}}
       `}</style>
     </div>
   )
