@@ -8,6 +8,21 @@ const RANGE_MAP: Record<string, { interval: string; range: string }> = {
   '5Y':  { interval: '1wk', range: '5y'  },
 };
 
+const FALLBACK: Record<string, string> = {
+  '^GSPC': 'SPY', '^IXIC': 'QQQ', '^TA35.TA': 'EIS',
+  '^STOXX50E': 'FEZ', '^N225': 'EWJ', 'EEM': 'EEM', 'URTH': 'URTH'
+};
+
+async function fetchSymbol(symbol: string, interval: string, range: string): Promise<any> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${interval}&range=${range}`;
+  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  const result = data?.chart?.result?.[0];
+  if (!result || !result.timestamp?.length) throw new Error('No data');
+  return result;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET');
@@ -22,13 +37,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   await Promise.all(symbols.map(async symbol => {
     try {
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${interval}&range=${r}`;
-      const response = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-      results[symbol] = { result: data?.chart?.result?.[0] || null };
-    } catch (e) {
-      results[symbol] = { error: String(e) };
+      const result = await fetchSymbol(symbol, interval, r);
+      results[symbol] = { result };
+    } catch {
+      // fallback
+      const fallback = FALLBACK[symbol];
+      if (fallback && fallback !== symbol) {
+        try {
+          const result = await fetchSymbol(fallback, interval, r);
+          results[symbol] = { result, usedFallback: fallback };
+        } catch (e) {
+          results[symbol] = { error: String(e) };
+        }
+      } else {
+        results[symbol] = { error: 'Failed' };
+      }
     }
   }));
 
