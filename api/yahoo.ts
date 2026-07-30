@@ -10,10 +10,10 @@ const RANGE_MAP: Record<string, { interval: string; range: string }> = {
 
 const FALLBACK: Record<string, string> = {
   '^GSPC': 'SPY', '^IXIC': 'QQQ', '^TA35.TA': 'EIS',
-  '^STOXX50E': 'FEZ', '^N225': 'EWJ', 'EEM': 'EEM', 'URTH': 'URTH'
+  '^STOXX50E': 'FEZ', '^N225': 'EWJ'
 };
 
-async function fetchSymbol(symbol: string, interval: string, range: string): Promise<any> {
+async function fetchChart(symbol: string, interval: string, range: string): Promise<any> {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${interval}&range=${range}`;
   const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -21,6 +21,14 @@ async function fetchSymbol(symbol: string, interval: string, range: string): Pro
   const result = data?.chart?.result?.[0];
   if (!result || !result.timestamp?.length) throw new Error('No data');
   return result;
+}
+
+async function fetchQuote(symbol: string): Promise<any> {
+  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbol)}`;
+  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data?.quoteResponse?.result?.[0] || null;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -37,21 +45,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   await Promise.all(symbols.map(async symbol => {
     try {
-      const result = await fetchSymbol(symbol, interval, r);
-      results[symbol] = { result };
-    } catch {
-      // fallback
-      const fallback = FALLBACK[symbol];
-      if (fallback && fallback !== symbol) {
-        try {
-          const result = await fetchSymbol(fallback, interval, r);
-          results[symbol] = { result, usedFallback: fallback };
-        } catch (e) {
-          results[symbol] = { error: String(e) };
-        }
-      } else {
-        results[symbol] = { error: 'Failed' };
+      let chartResult;
+      try {
+        chartResult = await fetchChart(symbol, interval, r);
+      } catch {
+        const fb = FALLBACK[symbol];
+        if (!fb) throw new Error('No data and no fallback');
+        chartResult = await fetchChart(fb, interval, r);
       }
+
+      // הבא market cap, P/E, שם מלא, סקטור
+      const quote = await fetchQuote(symbol);
+      if (quote) {
+        if (!chartResult.meta) chartResult.meta = {};
+        chartResult.meta.marketCap   = quote.marketCap || 0;
+        chartResult.meta.trailingPE  = quote.trailingPE || 0;
+        chartResult.meta.forwardPE   = quote.forwardPE || 0;
+        chartResult.meta.longName    = quote.longName || quote.shortName || symbol;
+        chartResult.meta.currency    = quote.currency || chartResult.meta.currency || 'USD';
+        // תיקון: מניות TASE נסחרות באגורות (Agorot) — 100 אגורות = 1 שקל
+        if (quote.currency === 'ILA') {
+          chartResult.meta.regularMarketPrice = (chartResult.meta.regularMarketPrice || 0) / 100;
+          chartResult.meta.chartPreviousClose = (chartResult.meta.chartPreviousClose || 0) / 100;
+          chartResult.meta.fiftyTwoWeekHigh   = (chartResult.meta.fiftyTwoWeekHigh || 0) / 100;
+          chartResult.meta.currency = 'ILS';
+        }
+      }
+
+      results[symbol] = { result: chartResult };
+    } catch (e) {
+      results[symbol] = { error: String(e) };
     }
   }));
 
